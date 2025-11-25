@@ -30,6 +30,10 @@ from config import (
     PRODUCT_LIMIT
 )
 
+# Import additional functions for loading product IDs
+import requests
+from typing import Dict
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +46,59 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def load_category_urls(filename: str = "category_urls.txt") -> Dict[str, str]:
+    """
+    Load category URLs from a text file.
+    Format: category_id=url
+    Lines starting with # are ignored.
+    """
+    urls = {}
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    if '=' in line:
+                        category_id, url = line.split('=', 1)
+                        urls[category_id.strip()] = url.strip()
+    except FileNotFoundError:
+        logger.warning(f"{filename} not found, will use API fallback")
+    except Exception as e:
+        logger.error(f"Error loading {filename}: {e}")
+
+    return urls
+
+
+def load_product_ids_from_url(category_id: str, urls: Dict[str, str]) -> List[int]:
+    """
+    Load product IDs from a URL if available in the urls dict.
+    """
+    if category_id not in urls:
+        return []
+
+    url = urls[category_id]
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Accept-Language': 'en-GB,en;q=0.9',
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            product_ids = data.get("productIds", [])
+            if product_ids:
+                logger.info(f"Loaded {len(product_ids)} product IDs from URL for category {category_id}")
+                return product_ids
+        else:
+            logger.warning(f"URL request failed with status {response.status_code} for category {category_id}")
+    except Exception as e:
+        logger.error(f"Error loading from URL for category {category_id}: {e}")
+
+    return []
+
+
 class PullBearScraper:
     """Main scraper class for Pull & Bear products."""
 
@@ -51,6 +108,7 @@ class PullBearScraper:
         self.processor = None
         self.model = None
         self.executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+        self.category_urls = load_category_urls()
 
         # Initialize the embedding model
         self._init_embedding_model()
@@ -494,7 +552,35 @@ class PullBearScraper:
         for category_name, category_data in CATEGORY_IDS['men'].items():
             category_id = category_data['category_id']
 
-            products = await self.scrape_category(f"men_{category_name}", category_id)
+            # Load product IDs for this category
+            product_ids = load_product_ids_from_url(category_id, self.category_urls)
+
+            # If URL loading failed, try to load from local file as fallback
+            if not product_ids:
+                # Try to load from local JSON file
+                import os
+                import json
+                possible_files = [
+                    os.path.join("category_data", f"{category_id}.json"),
+                    f"{category_id}.json",
+                ]
+                for filepath in possible_files:
+                    if os.path.exists(filepath):
+                        try:
+                            with open(filepath, 'r', encoding='utf-8') as f:
+                                data = json.load(f)
+                                product_ids = data.get("productIds", [])
+                                if product_ids:
+                                    logger.info(f"Loaded {len(product_ids)} product IDs from {filepath} (fallback)")
+                                    break
+                        except Exception as e:
+                            logger.error(f"Error loading {filepath}: {e}")
+
+            if not product_ids:
+                logger.warning(f"No product IDs found for category {category_name} ({category_id}), skipping")
+                continue
+
+            products = await self.scrape_category(f"men_{category_name}", category_id, product_ids)
 
             # Filter out duplicates
             for product in products:

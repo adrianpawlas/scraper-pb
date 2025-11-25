@@ -1,0 +1,13 @@
+# Paste Pull & Bear category JSON URLs here
+# Format: category_id=url
+# Example:
+# 1030204838=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204838/product?showProducts=false&showNoStock=false&appId=1&languageId=-15&locale=en_GB
+
+# Men's categories
+1030204838=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204838/product?showProducts=false&showNoStock=false&appId=1&languageId=-15&locale=en_GB
+1030204731=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204731/product?showProducts=false&showNoStock=false&appId=1&languageId=-15&locale=en_GB
+1030204721=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204721/product?showProducts=false&showNoStock=false&appId=1&languageId=-15&locale=en_GB
+1030204823=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204823/product?showProducts=false&showNoStock=false&appId=1&languageId=-15&locale=en_GB
+1030204792=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204792/product?showProducts=false&showNoStock=false&appId=1&languageId=-15&locale=en_GB
+1030204757=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204757/product?showProducts=false&showNoStock=false&appId=1&languageId=-15&locale=en_GB
+1030204767=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204767/product?showProducts=false&showNoStock=false&appId=1&languageId=-15&locale=en_GB

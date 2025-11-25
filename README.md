@@ -26,14 +26,20 @@ SUPABASE_URL=your_supabase_project_url
 SUPABASE_KEY=your_supabase_anon_key
 ```
 
-### 3. Capture Category Data (Required)
-Since Pull & Bear's API blocks direct requests, you need to capture category JSON files from your browser.
-See `CAPTURE_INSTRUCTIONS.md` for detailed steps.
+### 3. Configure Category URLs (Required)
+Since Pull & Bear's API blocks direct requests, you need to provide the category API URLs.
 
-Save files to `category_data/` folder:
-- `category_data/1030204838.json` (men's jackets & coats)
-- `category_data/1030204731.json` (men's jeans)
-- etc.
+Edit `category_urls.txt` and paste the URLs for each category:
+```
+# Men's categories
+1030204838=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204838/product?showProducts=false&showNoStock=false&appId=1&languageId=-15&locale=en_GB
+1030204731=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204731/product?showProducts=false&showNoStock=false&appId=1&languageId=-15&locale=en_GB
+...
+```
+
+The scraper will automatically fetch the latest product IDs from these URLs. When Pull & Bear updates their catalog, just update the URLs in this file.
+
+**Alternative**: You can still save local JSON files to `category_data/` folder as fallback, but URLs are preferred for automatic updates.
 
 ### 4. Run the Scraper
 ```bash

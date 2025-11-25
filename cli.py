@@ -22,6 +22,54 @@ except ImportError:
     from embeddings import get_image_embedding
 
 
+def load_category_urls(filename: str = "category_urls.txt") -> Dict[str, str]:
+    """
+    Load category URLs from a text file.
+    Format: category_id=url
+    Lines starting with # are ignored.
+    """
+    urls = {}
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    if '=' in line:
+                        category_id, url = line.split('=', 1)
+                        urls[category_id.strip()] = url.strip()
+    except FileNotFoundError:
+        print(f"  {filename} not found, will use API fallback")
+    except Exception as e:
+        print(f"  Error loading {filename}: {e}")
+
+    return urls
+
+
+def load_product_ids_from_url(category_id: str, urls: Dict[str, str], headers: Dict[str, str]) -> List[int]:
+    """
+    Load product IDs from a URL if available in the urls dict.
+    """
+    if category_id not in urls:
+        return []
+
+    url = urls[category_id]
+    try:
+        import requests
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            product_ids = data.get("productIds", [])
+            if product_ids:
+                print(f"  Loaded {len(product_ids)} product IDs from URL for category {category_id}")
+                return product_ids
+        else:
+            print(f"  URL request failed with status {response.status_code} for category {category_id}")
+    except Exception as e:
+        print(f"  Error loading from URL for category {category_id}: {e}")
+
+    return []
+
+
 def load_product_ids_from_file(category_id: str, data_dir: str = "category_data") -> List[int]:
     """
     Load product IDs from a local JSON file if available.
@@ -34,7 +82,7 @@ def load_product_ids_from_file(category_id: str, data_dir: str = "category_data"
         f"{category_id}.json",
         f"category_{category_id}.json",
     ]
-    
+
     for filepath in possible_files:
         if os.path.exists(filepath):
             try:
@@ -46,7 +94,7 @@ def load_product_ids_from_file(category_id: str, data_dir: str = "category_data"
                         return product_ids
             except Exception as e:
                 print(f"  Error loading {filepath}: {e}")
-    
+
     return []
 
 
@@ -238,17 +286,24 @@ def run_for_site(site: Dict, session: PoliteSession, db: SupabaseREST, supa_env:
                 continue
             
             print(f"\nProcessing category: {category_name} ({category_id})")
-            
-            # Step 0: Check for local JSON file first (fastest option)
-            product_ids = load_product_ids_from_file(category_id)
-            
-            # Step 1: If no local file, try API
+
+            # Step 0: Load category URLs from file
+            category_urls = load_category_urls()
+
+            # Step 1: Check for URL first (most up-to-date option)
+            product_ids = load_product_ids_from_url(category_id, category_urls, headers)
+
+            # Step 2: If no URL or URL failed, check for local JSON file (fallback)
+            if not product_ids:
+                product_ids = load_product_ids_from_file(category_id)
+
+            # Step 3: If no local file, try API
             if not product_ids:
                 product_ids = discover_product_ids_from_api(
                     session, category_id, category_ids_url_template, headers, debug
                 )
-            
-            # Step 2: If API failed, try Playwright
+
+            # Step 4: If API failed, try Playwright
             if not product_ids:
                 print("  API blocked, trying Playwright...")
                 product_ids = discover_product_ids_with_playwright(category_id, category_ids_url_template, debug)
