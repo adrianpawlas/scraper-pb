@@ -64,6 +64,13 @@ def load_sites_config(config_file: str = "sites.yaml") -> List[Dict[str, Any]]:
                     "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/productsArray?languageId=-15&productIds=725068027%2C725068025%2C692151703%2C715794594%2C699865416%2C695434559%2C702129746%2C699693856%2C696614819%2C723941794%2C697267101%2C699693860%2C692161447&categoryId=1030204792&appId=1", # men's t-shirts
                     "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/productsArray?languageId=-15&productIds=707909007%2C695245011%2C695245003%2C692764715%2C692161350%2C692151583%2C698445226%2C697075217%2C692156967%2C692156965%2C711518892%2C711204936&categoryId=1030204757&appId=1", # men's sweaters & cardigans
                     "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/productsArray?languageId=-15&productIds=721179962%2C721179960%2C718008657%2C707646432%2C713002773%2C713002754%2C709246510%2C718008658%2C713002772%2C712667066%2C712667064%2C707646431&categoryId=1030204767&appId=1", # men's shirts
+                    "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/productsArray?languageId=-15&productIds=725707109%2C725940647%2C692151623%2C715722822%2C692151624%2C693840151%2C714314099%2C692151625%2C693840152%2C722719695%2C692151909%2C693840134%2C701982111%2C692161482%2C700056168%2C715722833&categoryId=1030299061&appId=1", # men's sweatsuits
+                    "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/productsArray?languageId=-15&productIds=721441641%2C695245011%2C699865416%2C713100378%2C701515287%2C692161500%2C711204936%2C706360077%2C706360075%2C703079608%2C701724479%2C701515259&categoryId=1030204788&appId=1", # men's polo shirts
+                    "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/productsArray?languageId=-15&productIds=692152424%2C692152415%2C692152414%2C692152416%2C692152417%2C692157175%2C692157177%2C692157176%2C692152433%2C692151514%2C692151512%2C692161618%2C692161580%2C692157466%2C692157115%2C692152435&categoryId=1030204713&appId=1", # men's shorts
+                    "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/productsArray?languageId=-15&productIds=695245003%2C695245004%2C695245002%2C695245001%2C721804754%2C721804756%2C721804752%2C721804758%2C692151624%2C692151625%2C692151626%2C692151623%2C711646894%2C711646895%2C692151621%2C711647474%2C692151622%2C711647475%2C692980728%2C692980725%2C692757305%2C692980724%2C692757306%2C692980726%2C692980729%2C692157138&categoryId=29512&appId=1", # men's basics
+                    "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/productsArray?languageId=-15&productIds=692157226%2C706173177%2C692157225%2C692161294%2C721446627%2C721446707%2C721446549%2C692157299%2C713556117%2C692157378%2C721442003%2C701190230%2C701190232%2C697861797%2C697656599%2C707646399%2C706632120%2C720244852%2C694532981%2C714314448%2C706632152%2C721804777&categoryId=1030207045&appId=1", # men's shoes
+                    "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/productsArray?languageId=-15&productIds=705282962%2C721446639%2C705282954%2C692161476%2C726630670%2C696097123%2C701944141%2C702401342%2C719760980%2C702191697%2C692156987%2C695559561%2C692156991%2C697207081%2C698993659%2C714313586%2C696614839%2C692151669%2C695574455&categoryId=1030465398&appId=1", # men's bags & backpacks
+                    "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/productsArray?languageId=-15&productIds=707132786%2C706635138%2C706632138%2C706635140%2C706635137%2C706635136%2C721442172%2C721441635%2C721069131%2C721442170%2C707646409%2C713104033%2C716209001%2C706635139%2C710213806%2C706632143&categoryId=1030207098&appId=1", # men's accessories
                 ],
                 "items_path": "products",
                 "field_map": {
@@ -130,13 +137,20 @@ PRODUCT_LIMIT = 0  # 0 = no limit
 # Category mappings for Pull & Bear
 CATEGORY_IDS = {
     'men': {
-        'jackets_coats': {'category_id': 1030204838},
-        'jeans': {'category_id': 1030204731},
-        'pants': {'category_id': 1030204721},
-        'sweatshirts_hoodies': {'category_id': 1030204823},
-        'tshirts': {'category_id': 1030204792},
-        'sweaters_cardigans': {'category_id': 1030204757},
-        'shirts': {'category_id': 1030204767},
+        'jackets_coats': {'category_id': '1030204838'},
+        'jeans': {'category_id': '1030204731'},
+        'pants': {'category_id': '1030204721'},
+        'sweatshirts_hoodies': {'category_id': '1030204823'},
+        'tshirts': {'category_id': '1030204792'},
+        'sweaters_cardigans': {'category_id': '1030204757'},
+        'shirts': {'category_id': '1030204767'},
+        'category_1030299061': {'category_id': '1030299061'},
+        'category_1030204788': {'category_id': '1030204788'},
+        'category_1030204713': {'category_id': '1030204713'},
+        'category_29512': {'category_id': '29512'},
+        'category_1030207045': {'category_id': '1030207045'},
+        'category_1030465398': {'category_id': '1030465398'},
+        'category_1030207098': {'category_id': '1030207098'},
     },
     'women': {
         # Add women's categories as needed

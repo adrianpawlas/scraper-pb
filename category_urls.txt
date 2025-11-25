@@ -12,7 +12,7 @@
 1030204757=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204757/product?languageId=-15&showProducts=false&priceFilter=true&appId=1
 1030204767=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204767/product?languageId=-15&showProducts=false&priceFilter=true&appId=1
 1030299061=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030299061/product?languageId=-15&showProducts=false&priceFilter=true&appId=1
-1030204788/=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204788/product?languageId=-15&showProducts=false&priceFilter=true&appId=1
+1030204788=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204788/product?languageId=-15&showProducts=false&priceFilter=true&appId=1
 1030204713=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030204713/product?languageId=-15&showProducts=false&priceFilter=true&appId=1
 29512=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/29512/product?languageId=-15&showProducts=false&priceFilter=true&appId=1
 1030207045=https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/1030207045/product?languageId=-15&showProducts=false&priceFilter=true&appId=1
