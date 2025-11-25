@@ -1,0 +1,59 @@
+- brand: Pull & Bear
+  merchant: Pull & Bear
+  source: scraper
+  country: us
+  debug: true
+  respect_robots: false
+  api:
+    # Category endpoints - we use the category/product endpoint to get ALL product IDs first
+    # Then fetch product details in batches using productsArray
+    category_endpoints:
+      - id: "1030204838"
+        name: "men_jackets_coats"
+        gender: "MAN"
+      - id: "1030204731"
+        name: "men_jeans"
+        gender: "MAN"
+      - id: "1030204721"
+        name: "men_pants"
+        gender: "MAN"
+      - id: "1030204823"
+        name: "men_sweatshirts_hoodies"
+        gender: "MAN"
+      - id: "1030204792"
+        name: "men_tshirts"
+        gender: "MAN"
+      - id: "1030204757"
+        name: "men_sweaters_cardigans"
+        gender: "MAN"
+      - id: "1030204767"
+        name: "men_shirts"
+        gender: "MAN"
+    # URL templates - the KEY is using category_ids_url to get ALL product IDs first!
+    # Step 1: Fetch ALL product IDs from this endpoint (returns 888+ IDs for men's category)
+    category_ids_url: "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/{category_id}/product?showProducts=false&showNoStock=false&appId=1&languageId=-15&locale=en_GB"
+    # Step 2: Fetch product details in batches using those IDs
+    products_url: "https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/productsArray?categoryId={category_id}&productIds={product_ids}&appId=1&languageId=-15&locale=en_GB"
+    product_url_template: "https://www.pullandbear.com/us/{slug}-c0p{product_id}.html"
+    # Batch size for product API calls (fetch 50 products at a time)
+    batch_size: 50
+    items_path: "products"
+    field_map:
+      external_id: "id"
+      product_id: "id"
+      title: ["nameEn", "name"]
+      description: ["bundleProductSummaries[0].detail.longDescription", "bundleProductSummaries[0].detail.description"]
+      price: "bundleProductSummaries[0].detail.colors[0].sizes[0].price"
+      currency: "'EUR'"
+      # Use deliveryUrl from xmedia which has the full image URL
+      image_url: "bundleProductSummaries[0].detail.xmedia[0].xmediaItems[0].medias[0].extraInfo.deliveryUrl"
+      brand: "'Pull & Bear'"
+      sizes: "bundleProductSummaries[0].detail.colors[0].sizes[].name"
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
+      Accept: "application/json, text/plain, */*"
+      Accept-Language: "en-GB,en;q=0.9"
+      Referer: "https://www.pullandbear.com/"
+    debug: true
+    prewarm:
+      - "https://www.pullandbear.com/us/"

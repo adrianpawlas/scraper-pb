@@ -1,0 +1,16 @@
+requests
+supabase
+transformers
+torch
+Pillow
+tqdm
+python-dotenv
+aiohttp
+psycopg2-binary
+sentencepiece
+protobuf
+PyYAML
+beautifulsoup4
+lxml
+jmespath
+playwright
