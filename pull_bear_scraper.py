@@ -423,6 +423,13 @@ class PullBearScraper:
             # Open image
             image = Image.open(io.BytesIO(image_data)).convert('RGB')
 
+            # Verify image is valid
+            image.verify()  # This will raise an exception if the image is corrupted
+            image.close()
+
+            # Re-open the image after verification
+            image = Image.open(io.BytesIO(image_data)).convert('RGB')
+
             # Process with SigLIP - need both image and text inputs
             inputs = self.processor(
                 images=image,
