@@ -552,32 +552,11 @@ class PullBearScraper:
         for category_name, category_data in CATEGORY_IDS['men'].items():
             category_id = category_data['category_id']
 
-            # Load product IDs for this category
+            # Load product IDs for this category from URLs only
             product_ids = load_product_ids_from_url(category_id, self.category_urls)
 
-            # If URL loading failed, try to load from local file as fallback
             if not product_ids:
-                # Try to load from local JSON file
-                import os
-                import json
-                possible_files = [
-                    os.path.join("category_data", f"{category_id}.json"),
-                    f"{category_id}.json",
-                ]
-                for filepath in possible_files:
-                    if os.path.exists(filepath):
-                        try:
-                            with open(filepath, 'r', encoding='utf-8') as f:
-                                data = json.load(f)
-                                product_ids = data.get("productIds", [])
-                                if product_ids:
-                                    logger.info(f"Loaded {len(product_ids)} product IDs from {filepath} (fallback)")
-                                    break
-                        except Exception as e:
-                            logger.error(f"Error loading {filepath}: {e}")
-
-            if not product_ids:
-                logger.warning(f"No product IDs found for category {category_name} ({category_id}), skipping")
+                logger.warning(f"No product IDs found for category {category_name} ({category_id}) from URL, skipping")
                 continue
 
             products = await self.scrape_category(f"men_{category_name}", category_id, product_ids)

@@ -290,20 +290,16 @@ def run_for_site(site: Dict, session: PoliteSession, db: SupabaseREST, supa_env:
             # Step 0: Load category URLs from file
             category_urls = load_category_urls()
 
-            # Step 1: Check for URL first (most up-to-date option)
+            # Step 1: Check for URL first (only source now)
             product_ids = load_product_ids_from_url(category_id, category_urls, headers)
 
-            # Step 2: If no URL or URL failed, check for local JSON file (fallback)
-            if not product_ids:
-                product_ids = load_product_ids_from_file(category_id)
-
-            # Step 3: If no local file, try API
+            # Step 2: If URL failed, try API
             if not product_ids:
                 product_ids = discover_product_ids_from_api(
                     session, category_id, category_ids_url_template, headers, debug
                 )
 
-            # Step 4: If API failed, try Playwright
+            # Step 3: If API failed, try Playwright
             if not product_ids:
                 print("  API blocked, trying Playwright...")
                 product_ids = discover_product_ids_with_playwright(category_id, category_ids_url_template, debug)
