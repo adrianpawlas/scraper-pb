@@ -213,7 +213,7 @@ class PullBearScraper:
     def _extract_single_product(self, bundle_product: Dict, variant: Dict, color: Dict) -> Optional[Dict[str, Any]]:
         """Extract information for a single product variant."""
         try:
-            # Get the best image URL from the variant's xmedia
+            # Get the best image URL (prioritizes product-only "p1" shots)
             image_url = self._get_best_image_url(variant)
 
             if not image_url:
@@ -300,7 +300,7 @@ class PullBearScraper:
             return None
 
     def _get_best_image_url(self, variant: Dict) -> Optional[str]:
-        """Get the best quality image URL from variant data."""
+        """Get the best quality image URL from variant data - prioritizes product-only shots."""
         try:
             variant_detail = variant.get('detail', {})
             if not variant_detail:
@@ -310,19 +310,48 @@ class PullBearScraper:
             if not xmedia:
                 return None
 
-            # Look for any product image with media
+            # First priority: Look for "p1" (product-only shot)
+            for xmedia_item in xmedia:
+                for item in xmedia_item.get('xmediaItems', []):
+                    medias = item.get('medias', [])
+                    for media in medias:
+                        if media.get('extraInfo', {}).get('originalName') == 'p1':
+                            # Try deliveryUrl first (higher quality), then fallback to url
+                            url = None
+                            if media.get('extraInfo', {}).get('deliveryUrl'):
+                                url = media['extraInfo']['deliveryUrl']
+                            elif media.get('url'):
+                                url = media['url']
+
+                            if url:
+                                if url.startswith('//'):
+                                    url = 'https:' + url
+                                elif url.startswith('/') and 'pullandbear' in url:
+                                    url = 'https://static.pullandbear.net' + url
+                                elif url.startswith('assets/'):
+                                    url = 'https://static.pullandbear.net/' + url
+                                return url
+
+            # Second priority: If no "p1" found, get any product image
             for xmedia_item in xmedia:
                 for item in xmedia_item.get('xmediaItems', []):
                     medias = item.get('medias', [])
                     if medias:
-                        # Get the first media URL (usually highest quality)
-                        media = medias[0]
-                        url = media.get('url', '')
-                        if url.startswith('//'):
-                            url = 'https:' + url
-                        elif url.startswith('/'):
-                            url = 'https://static.pullandbear.net' + url
-                        return url
+                        media = medias[0]  # Get first available media
+                        url = None
+                        if media.get('extraInfo', {}).get('deliveryUrl'):
+                            url = media['extraInfo']['deliveryUrl']
+                        elif media.get('url'):
+                            url = media['url']
+
+                        if url:
+                            if url.startswith('//'):
+                                url = 'https:' + url
+                            elif url.startswith('/') and 'pullandbear' in url:
+                                url = 'https://static.pullandbear.net' + url
+                            elif url.startswith('assets/'):
+                                url = 'https://static.pullandbear.net/' + url
+                            return url
 
             return None
 
