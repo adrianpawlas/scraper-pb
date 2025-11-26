@@ -310,12 +310,12 @@ class PullBearScraper:
             if not xmedia:
                 return None
 
-            # First priority: Look for "p1" (product-only shot)
+            # First priority: Look for "s1" (product-only shot)
             for xmedia_item in xmedia:
                 for item in xmedia_item.get('xmediaItems', []):
                     medias = item.get('medias', [])
                     for media in medias:
-                        if media.get('extraInfo', {}).get('originalName') == 'p1':
+                        if media.get('extraInfo', {}).get('originalName') == 's1':
                             # Try deliveryUrl first (higher quality), then fallback to url
                             url = None
                             if media.get('extraInfo', {}).get('deliveryUrl'):
