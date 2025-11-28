@@ -9,6 +9,7 @@ import io
 import json
 import logging
 import time
+import random
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Any
 from urllib.parse import urljoin
@@ -44,6 +45,40 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# User agents for rotation
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0',
+]
+
+def get_random_user_agent() -> str:
+    """Get a random user agent from the list."""
+    return random.choice(USER_AGENTS)
+
+def get_realistic_headers(referer: str = None) -> Dict[str, str]:
+    """Get realistic HTTP headers for requests."""
+    headers = {
+        'User-Agent': get_random_user_agent(),
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-GB,en;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Cache-Control': 'max-age=0',
+    }
+
+    if referer:
+        headers['Referer'] = referer
+
+    return headers
 
 
 def load_category_urls(filename: str = "category_urls.txt") -> Dict[str, str]:
@@ -91,20 +126,39 @@ async def load_product_ids_from_url_async(category_id: str, urls: Dict[str, str]
         await asyncio.sleep(1)
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--single-process',
+                    '--disable-gpu'
+                ]
+            )
             context = await browser.new_context(
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                viewport={'width': 1280, 'height': 720}
+                user_agent=get_random_user_agent(),
+                viewport={'width': 1280, 'height': 720},
+                locale='en-GB',
+                timezone_id='Europe/London'
             )
             page = await context.new_page()
 
             try:
                 # Visit main site first to set cookies and establish session
                 await page.goto('https://www.pullandbear.com/', wait_until='domcontentloaded', timeout=30000)
+                await asyncio.sleep(2)
+
+                # Navigate to men's section to establish browsing pattern
+                await page.goto('https://www.pullandbear.com/en/man-c1030148976.html', wait_until='domcontentloaded', timeout=30000)
                 await asyncio.sleep(1)
 
-                # Make the API request through Playwright
-                response = await page.request.get(url, timeout=30000)
+                # Make the API request through Playwright with realistic headers
+                headers = get_realistic_headers('https://www.pullandbear.com/en/man-c1030148976.html')
+                response = await page.request.get(url, headers=headers, timeout=30000)
 
                 if response.status == 200:
                     try:
@@ -165,11 +219,9 @@ class PullBearScraper:
     async def __aenter__(self):
         """Async context manager entry."""
         self.session = aiohttp.ClientSession(
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json',
-                'Accept-Language': 'en-GB,en;q=0.9',
-            }
+            headers=get_realistic_headers('https://www.pullandbear.com/'),
+            connector=aiohttp.TCPConnector(limit=10, ttl_dns_cache=300),
+            timeout=aiohttp.ClientTimeout(total=30, connect=10)
         )
         return self
 
@@ -199,22 +251,44 @@ class PullBearScraper:
         return url
 
     async def fetch_products_batch(self, category_id: int, product_ids: List[int] = None, page: int = None) -> Dict[str, Any]:
-        """Fetch a batch of products from the Pull & Bear API."""
+        """Fetch a batch of products from the Pull & Bear API with retry logic."""
         url = self.build_api_url(category_id, product_ids, page)
+        max_retries = 3
 
-        try:
-            async with self.session.get(url) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    products = data.get('products', [])
-                    logger.info(f"API returned {len(products)} products for category {category_id} (page {page or 0})")
-                    return data
+        for attempt in range(max_retries):
+            try:
+                # Update headers with fresh user agent for each attempt
+                headers = get_realistic_headers('https://www.pullandbear.com/')
+                headers.update({'Accept': 'application/json'})
+
+                async with self.session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        products = data.get('products', [])
+                        logger.info(f"API returned {len(products)} products for category {category_id} (page {page or 0})")
+                        return data
+                    elif response.status == 403:
+                        logger.warning(f"403 Forbidden on attempt {attempt + 1}/{max_retries} for {url}")
+                        if attempt < max_retries - 1:
+                            delay = (2 ** attempt) + random.uniform(0, 1)  # Exponential backoff with jitter
+                            logger.info(f"Waiting {delay:.2f} seconds before retry...")
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            logger.error(f"403 Forbidden after {max_retries} attempts: {url}")
+                            return {"products": []}
+                    else:
+                        logger.warning(f"API request failed with status {response.status}: {url}")
+                        return {"products": []}
+            except Exception as e:
+                logger.error(f"Error fetching products (attempt {attempt + 1}/{max_retries}): {e} - {url}")
+                if attempt < max_retries - 1:
+                    delay = (2 ** attempt) + random.uniform(0, 1)
+                    await asyncio.sleep(delay)
                 else:
-                    logger.warning(f"API request failed: {response.status} - {url}")
                     return {"products": []}
-        except Exception as e:
-            logger.error(f"Error fetching products: {e} - {url}")
-            return {"products": []}
+
+        return {"products": []}
 
     def extract_product_info(self, product: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Extract product information from the API response."""
@@ -257,7 +331,8 @@ class PullBearScraper:
                 return None
 
             # Extract basic information
-            product_id = f"{color['reference']}-{color['id']}"
+            reference = color.get('reference', color.get('displayReference', f"no_ref_{color['id']}"))
+            product_id = f"{reference}-{color['id']}"
             title = bundle_product.get('nameEn', bundle_product.get('name', ''))
             description = variant.get('detail', {}).get('longDescription', '')
 
@@ -431,14 +506,34 @@ class PullBearScraper:
             return None
 
     async def generate_embedding(self, image_url: str) -> Optional[List[float]]:
-        """Generate 768-dim embedding for an image URL."""
+        """Generate 768-dim embedding for an image URL with better error handling."""
         try:
-            # Download image
-            async with self.session.get(image_url) as response:
+            # Validate URL
+            if not image_url or not image_url.startswith(('http://', 'https://')):
+                logger.warning(f"Invalid image URL: {image_url}")
+                return None
+
+            # Download image with timeout and headers
+            headers = get_realistic_headers('https://www.pullandbear.com/')
+            headers.update({'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'})
+
+            async with self.session.get(image_url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
                 if response.status != 200:
+                    logger.warning(f"Failed to download image {image_url}: HTTP {response.status}")
+                    return None
+
+                # Check content type
+                content_type = response.headers.get('content-type', '').lower()
+                if not content_type.startswith('image/'):
+                    logger.warning(f"Invalid content type for {image_url}: {content_type}")
                     return None
 
                 image_data = await response.read()
+
+                # Basic validation of image data
+                if len(image_data) < 100:  # Too small to be a valid image
+                    logger.warning(f"Image data too small for {image_url}: {len(image_data)} bytes")
+                    return None
 
             # Process image in thread pool
             loop = asyncio.get_event_loop()
@@ -450,22 +545,34 @@ class PullBearScraper:
 
             return embedding
 
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout downloading image: {image_url}")
+            return None
         except Exception as e:
             logger.error(f"Error generating embedding for {image_url}: {e}")
             return None
 
     def _process_image_embedding(self, image_data: bytes) -> Optional[List[float]]:
-        """Process image and generate embedding (runs in thread pool)."""
+        """Process image and generate embedding (runs in thread pool) with better error handling."""
         try:
             # Open image
-            image = Image.open(io.BytesIO(image_data)).convert('RGB')
+            image = Image.open(io.BytesIO(image_data))
 
-            # Verify image is valid
-            image.verify()  # This will raise an exception if the image is corrupted
-            image.close()
+            # Convert to RGB and ensure it's valid
+            try:
+                image = image.convert('RGB')
+                # Verify image is not corrupted by trying to load it
+                image.load()
+            except Exception as convert_error:
+                logger.warning(f"Failed to convert/validate image: {convert_error}")
+                image.close()
+                return None
 
-            # Re-open the image after verification
-            image = Image.open(io.BytesIO(image_data)).convert('RGB')
+            # Check minimum dimensions
+            if image.size[0] < 10 or image.size[1] < 10:
+                logger.warning(f"Image too small: {image.size}")
+                image.close()
+                return None
 
             # Process with SigLIP - need both image and text inputs
             inputs = self.processor(
@@ -477,6 +584,9 @@ class PullBearScraper:
 
             with torch.no_grad():
                 outputs = self.model(**inputs)
+
+            # Close image to free memory
+            image.close()
 
             # Get the image embeddings (768-dim)
             if hasattr(outputs, 'image_embeds'):
@@ -504,7 +614,7 @@ class PullBearScraper:
             logger.error(f"Error processing image embedding: {e}")
             return None
 
-    async def scrape_category(self, category_name: str, category_id: int, product_ids: List[int] = None) -> List[Dict[str, Any]]:
+    async def scrape_category(self, category_name: str, category_id: int, product_ids: List[int] = None, stats: Dict[str, int] = None) -> List[Dict[str, Any]]:
         """Scrape all products from a specific category using the provided product IDs."""
         logger.info(f"Starting to scrape category: {category_name} (ID: {category_id}) with {len(product_ids or [])} product IDs")
 
@@ -526,8 +636,13 @@ class PullBearScraper:
                     logger.info(f"Page {page}: got {len(data['products'])} products from category {category_name}")
 
                     for product in data['products']:
-                        product_data = self.extract_product_info(product)
-                        all_products.extend(product_data)
+                        try:
+                            product_data = self.extract_product_info(product)
+                            all_products.extend(product_data)
+                        except Exception as e:
+                            logger.error(f"Error extracting product info for product {product.get('id', 'unknown')}: {e}")
+                            stats['extraction_errors'] += 1
+                            continue
 
                         # Respect product limit during extraction
                         if PRODUCT_LIMIT > 0 and len(all_products) >= PRODUCT_LIMIT:
@@ -616,6 +731,15 @@ class PullBearScraper:
 
         start_time = time.time()
         total_products = 0
+        stats = {
+            'categories_processed': 0,
+            'categories_failed': 0,
+            'categories_skipped': 0,
+            'products_found': 0,
+            'products_with_embeddings': 0,
+            'embedding_errors': 0,
+            'extraction_errors': 0
+        }
 
         # Scrape all categories
         all_products = []
@@ -624,45 +748,60 @@ class PullBearScraper:
         # Scrape men's categories - get ALL products from each category
         for category_name, category_data in CATEGORY_IDS['men'].items():
             category_id = category_data['category_id']
+            stats['categories_processed'] += 1
 
-            # Load product IDs for this category - use Playwright as primary method for URLs
-            product_ids = await load_product_ids_from_url_async(category_id, self.category_urls)
+            try:
+                logger.info(f"Processing category: {category_name} ({category_id})")
 
-            # Fallback: Try direct API if Playwright URL loading failed
-            if not product_ids:
-                logger.info(f"  URL loading failed for {category_name}, trying direct API...")
-                product_ids = await self._discover_product_ids_from_api_async(category_id)
+                # Load product IDs for this category - use Playwright as primary method for URLs
+                product_ids = await load_product_ids_from_url_async(category_id, self.category_urls)
 
-            # Final fallback: Try Playwright API discovery
-            if not product_ids:
-                logger.info(f"  Direct API blocked for {category_name}, trying Playwright API discovery...")
-                product_ids = await self._discover_product_ids_with_playwright_async(category_id)
+                # Fallback: Try direct API if Playwright URL loading failed
+                if not product_ids:
+                    logger.info(f"  URL loading failed for {category_name}, trying direct API...")
+                    product_ids = await self._discover_product_ids_from_api_async(category_id)
 
-            if not product_ids:
-                logger.warning(f"No product IDs found for category {category_name} ({category_id}) using any method, skipping")
+                # Final fallback: Try Playwright API discovery
+                if not product_ids:
+                    logger.info(f"  Direct API blocked for {category_name}, trying Playwright API discovery...")
+                    product_ids = await self._discover_product_ids_with_playwright_async(category_id)
+
+                if not product_ids:
+                    logger.warning(f"No product IDs found for category {category_name} ({category_id}) using any method, skipping")
+                    stats['categories_failed'] += 1
+                    continue
+
+                products = await self.scrape_category(f"men_{category_name}", category_id, product_ids, stats)
+
+                # Filter out duplicates
+                category_products_added = 0
+                for product in products:
+                    product_url = product.get('product_url')
+                    if product_url and product_url not in seen_product_urls:
+                        all_products.append(product)
+                        seen_product_urls.add(product_url)
+                        category_products_added += 1
+
+                stats['products_found'] += category_products_added
+                logger.info(f"Added {category_products_added} unique products from category {category_name}")
+
+                # Check product limit for testing
+                if PRODUCT_LIMIT > 0 and len(all_products) >= PRODUCT_LIMIT:
+                    all_products = all_products[:PRODUCT_LIMIT]
+                    logger.info(f"Reached product limit of {PRODUCT_LIMIT}, stopping scraping")
+                    break
+
+            except Exception as e:
+                logger.error(f"Error processing category {category_name} ({category_id}): {e}")
+                stats['categories_failed'] += 1
                 continue
-
-            products = await self.scrape_category(f"men_{category_name}", category_id, product_ids)
-
-            # Filter out duplicates
-            for product in products:
-                product_url = product.get('product_url')
-                if product_url and product_url not in seen_product_urls:
-                    all_products.append(product)
-                    seen_product_urls.add(product_url)
-
-            # Check product limit for testing
-            if PRODUCT_LIMIT > 0 and len(all_products) >= PRODUCT_LIMIT:
-                all_products = all_products[:PRODUCT_LIMIT]
-                logger.info(f"Reached product limit of {PRODUCT_LIMIT}, stopping scraping")
-                break
 
         # Scrape women's categories (if we haven't reached the limit)
         if PRODUCT_LIMIT == 0 or len(all_products) < PRODUCT_LIMIT:
             for category_name, category_data in CATEGORY_IDS['women'].items():
                 category_id = category_data['category_id']
 
-                products = await self.scrape_category(f"women_{category_name}", category_id)
+                products = await self.scrape_category(f"women_{category_name}", category_id, stats=stats)
 
                 # Filter out duplicates
                 for product in products:
@@ -685,11 +824,22 @@ class PullBearScraper:
         processed_products = []
         for i in range(0, len(all_products), BATCH_SIZE):
             batch = all_products[i:i + BATCH_SIZE]
-            processed_batch = await self.process_products_batch(batch)
-            processed_products.extend(processed_batch)
+            try:
+                processed_batch = await self.process_products_batch(batch)
+                processed_products.extend(processed_batch)
+                stats['products_with_embeddings'] += len(processed_batch)
+
+                # Count embedding errors (products without embeddings)
+                embedding_errors_in_batch = len(batch) - len(processed_batch)
+                stats['embedding_errors'] += embedding_errors_in_batch
+
+            except Exception as e:
+                logger.error(f"Error processing batch {i//BATCH_SIZE + 1}: {e}")
+                stats['embedding_errors'] += len(batch)
+                continue
 
             # Progress update
-            logger.info(f"Processed {len(processed_products)}/{len(all_products)} products")
+            logger.info(f"Processed {len(processed_products)}/{len(all_products)} products with embeddings")
 
         # Save to database
         logger.info("Saving to database...")
@@ -698,19 +848,26 @@ class PullBearScraper:
         end_time = time.time()
         duration = end_time - start_time
 
-        logger.info(
-            f"Scrape completed! "
-            f"Total products: {len(all_products)}, "
-            f"Processed with embeddings: {len(processed_products)}, "
-            f"Saved to DB: {saved_count}, "
-            f"Duration: {duration:.2f} seconds"
-        )
+        # Log comprehensive statistics
+        logger.info("=" * 60)
+        logger.info("SCRAPE COMPLETED - STATISTICS:")
+        logger.info(f"Categories processed: {stats['categories_processed']}")
+        logger.info(f"Categories failed: {stats['categories_failed']}")
+        logger.info(f"Categories skipped: {stats['categories_skipped']}")
+        logger.info(f"Total products found: {stats['products_found']}")
+        logger.info(f"Products with embeddings: {stats['products_with_embeddings']}")
+        logger.info(f"Embedding errors: {stats['embedding_errors']}")
+        logger.info(f"Extraction errors: {stats['extraction_errors']}")
+        logger.info(f"Products saved to DB: {saved_count}")
+        logger.info(f"Duration: {duration:.2f} seconds")
+        logger.info("=" * 60)
 
         return {
             'total_collected': len(all_products),
             'processed': len(processed_products),
             'saved': saved_count,
-            'duration': duration
+            'duration': duration,
+            'stats': stats
         }
 
     async def _discover_product_ids_from_api_async(self, category_id: str) -> List[int]:
@@ -768,19 +925,39 @@ class PullBearScraper:
             await asyncio.sleep(2)  # Rate limiting
 
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-accelerated-2d-canvas',
+                        '--no-first-run',
+                        '--no-zygote',
+                        '--single-process',
+                        '--disable-gpu'
+                    ]
+                )
                 context = await browser.new_context(
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    user_agent=get_random_user_agent(),
+                    viewport={'width': 1280, 'height': 720},
+                    locale='en-GB',
+                    timezone_id='Europe/London'
                 )
                 page = await context.new_page()
 
                 try:
                     # Visit main site first to set cookies
-                    await page.goto('https://www.pullandbear.com/', wait_until='domcontentloaded')
+                    await page.goto('https://www.pullandbear.com/', wait_until='domcontentloaded', timeout=30000)
+                    await asyncio.sleep(2)
+
+                    # Navigate to men's section
+                    await page.goto('https://www.pullandbear.com/en/man-c1030148976.html', wait_until='domcontentloaded', timeout=30000)
                     await asyncio.sleep(1)
 
-                    # Make the API request through Playwright
-                    response = await page.request.get(url)
+                    # Make the API request through Playwright with realistic headers
+                    headers = get_realistic_headers('https://www.pullandbear.com/en/man-c1030148976.html')
+                    response = await page.request.get(url, headers=headers, timeout=30000)
                     if response.status == 200:
                         data = await response.json()
                         product_ids = data.get("productIds", [])
