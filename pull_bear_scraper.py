@@ -134,93 +134,6 @@ async def load_product_ids_from_url_async(category_id: str, urls: Dict[str, str]
     return []
 
 
-async def _discover_product_ids_from_api_async(self, category_id: str) -> List[int]:
-    """
-    Fetch ALL product IDs from the category endpoint using aiohttp.
-    This is similar to the CLI approach but async.
-    """
-    # Use the same URL format that worked in the CLI
-    url = f"https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/{category_id}/product?languageId=-15&showProducts=false&priceFilter=true&appId=1"
-
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-GB,en;q=0.9',
-        'Referer': 'https://www.pullandbear.com/',
-    }
-
-    try:
-        import aiohttp
-        import asyncio
-        await asyncio.sleep(1)  # Rate limiting
-
-        async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    product_ids = data.get("productIds", [])
-                    if product_ids:
-                        logger.info(f"Loaded {len(product_ids)} product IDs from API for category {category_id}")
-                        return product_ids
-                    else:
-                        logger.warning(f"No productIds found in API response for category {category_id}")
-                else:
-                    logger.warning(f"API request failed with status {response.status} for category {category_id}")
-
-    except Exception as e:
-        logger.error(f"Error fetching product IDs from API for category {category_id}: {e}")
-
-    return []
-
-
-async def _discover_product_ids_with_playwright_async(self, category_id: str) -> List[int]:
-    """
-    Use Playwright to get product IDs by visiting the category page and extracting data.
-    """
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
-        logger.warning("Playwright not available")
-        return []
-
-    url = f"https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/{category_id}/product?languageId=-15&showProducts=false&priceFilter=true&appId=1"
-
-    try:
-        import asyncio
-        await asyncio.sleep(2)  # Rate limiting
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            )
-            page = await context.new_page()
-
-            try:
-                # Visit main site first to set cookies
-                await page.goto('https://www.pullandbear.com/', wait_until='domcontentloaded')
-                await asyncio.sleep(1)
-
-                # Make the API request through Playwright
-                response = await page.request.get(url)
-                if response.status == 200:
-                    data = await response.json()
-                    product_ids = data.get("productIds", [])
-                    if product_ids:
-                        logger.info(f"Loaded {len(product_ids)} product IDs with Playwright for category {category_id}")
-                        return product_ids
-                    else:
-                        logger.warning(f"No productIds found in Playwright response for category {category_id}")
-                else:
-                    logger.warning(f"Playwright request failed with status {response.status} for category {category_id}")
-
-            finally:
-                await browser.close()
-
-    except Exception as e:
-        logger.error(f"Error with Playwright for category {category_id}: {e}")
-
-    return []
 
 
 class PullBearScraper:
@@ -799,6 +712,93 @@ class PullBearScraper:
             'saved': saved_count,
             'duration': duration
         }
+
+    async def _discover_product_ids_from_api_async(self, category_id: str) -> List[int]:
+        """
+        Fetch ALL product IDs from the category endpoint using aiohttp.
+        This is similar to the CLI approach but async.
+        """
+        # Use the same URL format that worked in the CLI
+        url = f"https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/{category_id}/product?languageId=-15&showProducts=false&priceFilter=true&appId=1"
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-GB,en;q=0.9',
+            'Referer': 'https://www.pullandbear.com/',
+        }
+
+        try:
+            import aiohttp
+            import asyncio
+            await asyncio.sleep(1)  # Rate limiting
+
+            async with aiohttp.ClientSession(headers=headers) as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        product_ids = data.get("productIds", [])
+                        if product_ids:
+                            logger.info(f"Loaded {len(product_ids)} product IDs from API for category {category_id}")
+                            return product_ids
+                        else:
+                            logger.warning(f"No productIds found in API response for category {category_id}")
+                    else:
+                        logger.warning(f"API request failed with status {response.status} for category {category_id}")
+
+        except Exception as e:
+            logger.error(f"Error fetching product IDs from API for category {category_id}: {e}")
+
+        return []
+
+    async def _discover_product_ids_with_playwright_async(self, category_id: str) -> List[int]:
+        """
+        Use Playwright to get product IDs by visiting the category page and extracting data.
+        """
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            logger.warning("Playwright not available")
+            return []
+
+        url = f"https://www.pullandbear.com/itxrest/3/catalog/store/24009477/20309455/category/{category_id}/product?languageId=-15&showProducts=false&priceFilter=true&appId=1"
+
+        try:
+            import asyncio
+            await asyncio.sleep(2)  # Rate limiting
+
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                context = await browser.new_context(
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                )
+                page = await context.new_page()
+
+                try:
+                    # Visit main site first to set cookies
+                    await page.goto('https://www.pullandbear.com/', wait_until='domcontentloaded')
+                    await asyncio.sleep(1)
+
+                    # Make the API request through Playwright
+                    response = await page.request.get(url)
+                    if response.status == 200:
+                        data = await response.json()
+                        product_ids = data.get("productIds", [])
+                        if product_ids:
+                            logger.info(f"Loaded {len(product_ids)} product IDs with Playwright for category {category_id}")
+                            return product_ids
+                        else:
+                            logger.warning(f"No productIds found in Playwright response for category {category_id}")
+                    else:
+                        logger.warning(f"Playwright request failed with status {response.status} for category {category_id}")
+
+                finally:
+                    await browser.close()
+
+        except Exception as e:
+            logger.error(f"Error with Playwright for category {category_id}: {e}")
+
+        return []
 
 
 async def main():
