@@ -72,29 +72,53 @@ def load_category_urls(filename: str = "category_urls.txt") -> Dict[str, str]:
 def load_product_ids_from_url(category_id: str, urls: Dict[str, str]) -> List[int]:
     """
     Load product IDs from a URL if available in the urls dict.
+    Uses Playwright to avoid API blocking.
     """
     if category_id not in urls:
         return []
 
     url = urls[category_id]
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-        'Accept-Language': 'en-GB,en;q=0.9',
-    }
 
     try:
-        response = requests.get(url, headers=headers, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            product_ids = data.get("productIds", [])
-            if product_ids:
-                logger.info(f"Loaded {len(product_ids)} product IDs from URL for category {category_id}")
-                return product_ids
-        else:
-            logger.warning(f"URL request failed with status {response.status_code} for category {category_id}")
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.warning("Playwright not available, cannot load from URL")
+        return []
+
+    try:
+        # Add delay to avoid rate limiting
+        import time
+        time.sleep(2)
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+            )
+            page = context.new_page()
+
+            # Visit main site first to set cookies
+            page.goto('https://www.pullandbear.com/', wait_until='domcontentloaded')
+            time.sleep(1)
+
+            # Make the API request
+            response = page.request.get(url)
+            if response.status == 200:
+                data = response.json()
+                product_ids = data.get("productIds", [])
+                if product_ids:
+                    logger.info(f"Loaded {len(product_ids)} product IDs from URL for category {category_id}")
+                    browser.close()
+                    return product_ids
+                else:
+                    logger.warning(f"No productIds found in response for category {category_id}")
+            else:
+                logger.warning(f"Playwright request failed with status {response.status} for category {category_id}")
+
+            browser.close()
+
     except Exception as e:
-        logger.error(f"Error loading from URL for category {category_id}: {e}")
+        logger.error(f"Error loading from URL with Playwright for category {category_id}: {e}")
 
     return []
 
