@@ -71,64 +71,65 @@ def load_category_urls(filename: str = "category_urls.txt") -> Dict[str, str]:
 
 async def load_product_ids_from_url_async(category_id: str, urls: Dict[str, str]) -> List[int]:
     """
-    Load product IDs from a URL using requests with proper headers.
+    Load product IDs from a URL using Playwright to bypass API blocking.
+    This is the primary method for loading from category_urls.txt
     """
     if category_id not in urls:
         return []
 
     url = urls[category_id]
 
-    # Use comprehensive headers that mimic a real browser
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-GB,en;q=0.9,en;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Referer': 'https://www.pullandbear.com/',
-        'Origin': 'https://www.pullandbear.com',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-origin',
-        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-    }
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        logger.warning("Playwright not available, cannot load from URL")
+        return []
 
     try:
         # Add delay to avoid rate limiting
         import asyncio
         await asyncio.sleep(1)
 
-        # First try to get session cookies by visiting the main site
-        import aiohttp
-        async with aiohttp.ClientSession(headers=headers) as session:
-            try:
-                # Visit main site to get cookies
-                async with session.get('https://www.pullandbear.com/', timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    if response.status == 200:
-                        logger.debug("Successfully visited main site for cookies")
-            except Exception as e:
-                logger.debug(f"Could not visit main site: {e}")
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                viewport={'width': 1280, 'height': 720}
+            )
+            page = await context.new_page()
 
-            # Now make the API request
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            try:
+                # Visit main site first to set cookies and establish session
+                await page.goto('https://www.pullandbear.com/', wait_until='domcontentloaded', timeout=30000)
+                await asyncio.sleep(1)
+
+                # Make the API request through Playwright
+                response = await page.request.get(url, timeout=30000)
+
                 if response.status == 200:
-                    data = await response.json()
-                    product_ids = data.get("productIds", [])
-                    if product_ids:
-                        logger.info(f"Loaded {len(product_ids)} product IDs from URL for category {category_id}")
-                        return product_ids
-                    else:
-                        logger.warning(f"No productIds found in response for category {category_id}")
-                        logger.debug(f"Response: {data}")
+                    try:
+                        data = await response.json()
+                        product_ids = data.get("productIds", [])
+                        if product_ids:
+                            logger.info(f"Successfully loaded {len(product_ids)} product IDs from URL for category {category_id}")
+                            return product_ids
+                        else:
+                            logger.warning(f"No productIds found in URL response for category {category_id}")
+                            logger.debug(f"Response keys: {list(data.keys()) if isinstance(data, dict) else 'not dict'}")
+                    except Exception as json_error:
+                        logger.error(f"Failed to parse JSON response for category {category_id}: {json_error}")
+                        # Try to get text response for debugging
+                        text = await response.text()
+                        logger.debug(f"Raw response (first 500 chars): {text[:500]}")
                 else:
-                    logger.warning(f"Request failed with status {response.status} for category {category_id}")
+                    logger.warning(f"URL request failed with status {response.status} for category {category_id}")
                     logger.debug(f"URL: {url}")
 
+            finally:
+                await browser.close()
+
     except Exception as e:
-        logger.error(f"Error loading from URL for category {category_id}: {e}")
+        logger.error(f"Error loading from URL with Playwright for category {category_id}: {e}")
 
     return []
 
@@ -711,16 +712,17 @@ class PullBearScraper:
         for category_name, category_data in CATEGORY_IDS['men'].items():
             category_id = category_data['category_id']
 
-            # Load product IDs for this category - try multiple approaches
+            # Load product IDs for this category - use Playwright as primary method for URLs
             product_ids = await load_product_ids_from_url_async(category_id, self.category_urls)
 
-            # Fallback 1: Try API discovery if URL failed
+            # Fallback: Try direct API if Playwright URL loading failed
             if not product_ids:
+                logger.info(f"  URL loading failed for {category_name}, trying direct API...")
                 product_ids = await self._discover_product_ids_from_api_async(category_id)
 
-            # Fallback 2: Try Playwright if API failed
+            # Final fallback: Try Playwright API discovery
             if not product_ids:
-                logger.info(f"  API blocked for {category_name}, trying Playwright...")
+                logger.info(f"  Direct API blocked for {category_name}, trying Playwright API discovery...")
                 product_ids = await self._discover_product_ids_with_playwright_async(category_id)
 
             if not product_ids:

@@ -150,7 +150,7 @@ MAX_WORKERS = 4
 EMBEDDING_MODEL = "google/siglip-base-patch16-384"
 PRODUCT_LIMIT = 0  # 0 = no limit
 
-# Category mappings for Pull & Bear
+# Category mappings for Pull & Bear - all categories from URLs
 CATEGORY_IDS = {
     'men': {
         'jackets_coats': {'category_id': '1030204838'},
@@ -160,6 +160,29 @@ CATEGORY_IDS = {
         'tshirts': {'category_id': '1030204792'},
         'sweaters_cardigans': {'category_id': '1030204757'},
         'shirts': {'category_id': '1030204767'},
+        'category_1030299061': {'category_id': '1030299061'},
+        'category_1030204788': {'category_id': '1030204788'},
+        'category_1030204713': {'category_id': '1030204713'},
+        'category_29512': {'category_id': '29512'},
+        'category_1030207045': {'category_id': '1030207045'},
+        'category_1030465398': {'category_id': '1030465398'},
+        'category_1030207098': {'category_id': '1030207098'},
+        'category_1030471396': {'category_id': '1030471396'},
+        'category_1030440811': {'category_id': '1030440811'},
+        'category_1030204693': {'category_id': '1030204693'},
+        'category_1030207192': {'category_id': '1030207192'},
+        'category_1030204670': {'category_id': '1030204670'},
+        'category_1030422324': {'category_id': '1030422324'},
+        'category_1030204632': {'category_id': '1030204632'},
+        'category_1030204661': {'category_id': '1030204661'},
+        'category_1030204617': {'category_id': '1030204617'},
+        'category_1030204645': {'category_id': '1030204645'},
+        'category_1030543096': {'category_id': '1030543096'},
+        'category_1030475966': {'category_id': '1030475966'},
+        'category_1030299058': {'category_id': '1030299058'},
+        'category_1030207001': {'category_id': '1030207001'},
+        'category_1030207022': {'category_id': '1030207022'},
+        'category_1030204877': {'category_id': '1030204877'},
     },
     'women': {
         # Add women's categories as needed
