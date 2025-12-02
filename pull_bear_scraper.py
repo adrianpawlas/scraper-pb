@@ -10,6 +10,7 @@ import json
 import logging
 import time
 import random
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Any
 from urllib.parse import urljoin
@@ -332,7 +333,17 @@ class PullBearScraper:
 
             # Extract basic information
             reference = color.get('reference', color.get('displayReference', f"no_ref_{color['id']}"))
-            product_id = f"{reference}-{color['id']}"
+            
+            # Build product URL first (needed for unique ID generation)
+            product_url_base = variant.get('productUrl', '')
+            product_url = f"https://www.pullandbear.com/en/{product_url_base}.html"
+            
+            # Create unique product ID using hash of product URL + color ID to ensure uniqueness
+            # This prevents duplicates while keeping IDs reasonably short
+            unique_string = f"{product_url_base}-{color['id']}-{bundle_product.get('id', '')}"
+            product_id_hash = hashlib.md5(unique_string.encode('utf-8')).hexdigest()[:12]
+            product_id = f"{reference}-{product_id_hash}"
+            
             title = bundle_product.get('nameEn', bundle_product.get('name', ''))
             description = variant.get('detail', {}).get('longDescription', '')
 
@@ -359,9 +370,6 @@ class PullBearScraper:
 
             # Extract size information
             sizes = [size['name'] for size in color.get('sizes', []) if size.get('isBuyable')]
-
-            # Build product URL
-            product_url = f"https://www.pullandbear.com/en/{variant.get('productUrl', '')}.html"
 
             # Create comprehensive metadata
             metadata = {
@@ -697,33 +705,84 @@ class PullBearScraper:
         return processed_products
 
     async def save_to_supabase(self, products: List[Dict[str, Any]]) -> int:
-        """Save products to Supabase database."""
-        try:
-            # Convert embeddings to proper format for Supabase vector
-            for product in products:
-                if product.get('embedding'):
-                    product['embedding'] = f"[{', '.join(map(str, product['embedding']))}]"
+        """Save products to Supabase database with improved error handling."""
+        # Convert embeddings to proper format for Supabase vector
+        for product in products:
+            if product.get('embedding'):
+                product['embedding'] = f"[{', '.join(map(str, product['embedding']))}]"
 
-            # Insert in batches
-            batch_size = 100
-            inserted_count = 0
+        # Insert in batches with per-batch error handling
+        batch_size = 100
+        inserted_count = 0
+        failed_batches = 0
+        duplicate_errors = 0
 
-            for i in range(0, len(products), batch_size):
-                batch = products[i:i + batch_size]
+        for i in range(0, len(products), batch_size):
+            batch = products[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(products) + batch_size - 1) // batch_size
 
+            try:
                 result = self.supabase.table('products').upsert(
                     batch,
                     on_conflict='source,product_url'
                 ).execute()
 
-                inserted_count += len(result.data) if result.data else 0
+                if result.data:
+                    inserted_count += len(result.data)
+                    logger.debug(f"Batch {batch_num}/{total_batches}: Successfully saved {len(result.data)} products")
+                else:
+                    logger.warning(f"Batch {batch_num}/{total_batches}: No data returned from upsert")
 
-            logger.info(f"Inserted/updated {inserted_count} products in database")
-            return inserted_count
+            except Exception as e:
+                error_str = str(e)
+                failed_batches += 1
+                
+                # Check if it's a duplicate key error
+                if 'duplicate key' in error_str.lower() or '23505' in error_str:
+                    duplicate_errors += 1
+                    logger.warning(f"Batch {batch_num}/{total_batches}: Duplicate key error (likely product already exists): {error_str[:200]}")
+                    
+                    # Try to save products individually to identify the problematic one
+                    individual_success = 0
+                    for product in batch:
+                        try:
+                            result = self.supabase.table('products').upsert(
+                                [product],
+                                on_conflict='source,product_url'
+                            ).execute()
+                            if result.data:
+                                individual_success += 1
+                                inserted_count += 1
+                        except Exception as individual_error:
+                            logger.debug(f"Failed to save individual product {product.get('id', 'unknown')}: {str(individual_error)[:100]}")
+                    
+                    if individual_success > 0:
+                        logger.info(f"Batch {batch_num}/{total_batches}: Saved {individual_success}/{len(batch)} products individually after duplicate error")
+                else:
+                    logger.error(f"Batch {batch_num}/{total_batches}: Error saving batch: {error_str[:300]}")
+                    # Try to save products individually as fallback
+                    individual_success = 0
+                    for product in batch:
+                        try:
+                            result = self.supabase.table('products').upsert(
+                                [product],
+                                on_conflict='source,product_url'
+                            ).execute()
+                            if result.data:
+                                individual_success += 1
+                                inserted_count += 1
+                        except Exception:
+                            pass  # Skip individual failures silently
+                    
+                    if individual_success > 0:
+                        logger.info(f"Batch {batch_num}/{total_batches}: Saved {individual_success}/{len(batch)} products individually after batch error")
 
-        except Exception as e:
-            logger.error(f"Error saving to Supabase: {e}")
-            return 0
+        if failed_batches > 0:
+            logger.warning(f"Completed with {failed_batches} failed batches ({duplicate_errors} duplicate key errors)")
+        
+        logger.info(f"Inserted/updated {inserted_count} products in database")
+        return inserted_count
 
     async def run_full_scrape(self):
         """Run the complete scraping pipeline."""
