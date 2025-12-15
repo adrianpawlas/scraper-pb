@@ -420,7 +420,7 @@ class PullBearScraper:
             return None
 
     def _get_best_image_url(self, variant: Dict) -> Optional[str]:
-        """Get the best quality image URL from variant data - prioritizes product-only shots."""
+        """Get image URL from variant data - only returns 'z1' or 'c1' images."""
         try:
             variant_detail = variant.get('detail', {})
             if not variant_detail:
@@ -430,12 +430,12 @@ class PullBearScraper:
             if not xmedia:
                 return None
 
-            # First priority: Look for "s1" (product-only shot)
+            # First priority: Look for "z1" images
             for xmedia_item in xmedia:
                 for item in xmedia_item.get('xmediaItems', []):
                     medias = item.get('medias', [])
                     for media in medias:
-                        if media.get('extraInfo', {}).get('originalName') == 's1':
+                        if media.get('extraInfo', {}).get('originalName') == 'z1':
                             # Try deliveryUrl first (higher quality), then fallback to url
                             url = None
                             if media.get('extraInfo', {}).get('deliveryUrl'):
@@ -452,27 +452,30 @@ class PullBearScraper:
                                     url = 'https://static.pullandbear.net/' + url
                                 return url
 
-            # Second priority: If no "p1" found, get any product image
+            # Second priority: Look for "c1" images if no "z1" found
             for xmedia_item in xmedia:
                 for item in xmedia_item.get('xmediaItems', []):
                     medias = item.get('medias', [])
-                    if medias:
-                        media = medias[0]  # Get first available media
-                        url = None
-                        if media.get('extraInfo', {}).get('deliveryUrl'):
-                            url = media['extraInfo']['deliveryUrl']
-                        elif media.get('url'):
-                            url = media['url']
+                    for media in medias:
+                        if media.get('extraInfo', {}).get('originalName') == 'c1':
+                            # Try deliveryUrl first (higher quality), then fallback to url
+                            url = None
+                            if media.get('extraInfo', {}).get('deliveryUrl'):
+                                url = media['extraInfo']['deliveryUrl']
+                            elif media.get('url'):
+                                url = media['url']
 
-                        if url:
-                            if url.startswith('//'):
-                                url = 'https:' + url
-                            elif url.startswith('/') and 'pullandbear' in url:
-                                url = 'https://static.pullandbear.net' + url
-                            elif url.startswith('assets/'):
-                                url = 'https://static.pullandbear.net/' + url
-                            return url
+                            if url:
+                                if url.startswith('//'):
+                                    url = 'https:' + url
+                                elif url.startswith('/') and 'pullandbear' in url:
+                                    url = 'https://static.pullandbear.net' + url
+                                elif url.startswith('assets/'):
+                                    url = 'https://static.pullandbear.net/' + url
+                                return url
 
+            # If neither z1 nor c1 found, return None (only these image types are wanted)
+            logger.debug(f"No z1 or c1 image found for variant {variant.get('id', 'unknown')}, skipping product")
             return None
 
         except Exception as e:
