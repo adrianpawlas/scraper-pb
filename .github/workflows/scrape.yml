@@ -1,10 +1,7 @@
 name: Scrape Pull & Bear Products
 
 on:
-  # Daily at midnight UTC
-  schedule:
-    - cron: '0 0 * * *'
-  # Manual runs
+  # Manual runs - can be triggered from GitHub Actions tab
   workflow_dispatch:
     inputs:
       scrape_mode:
@@ -15,6 +12,9 @@ on:
         options:
           - full
           - test
+  # Daily at midnight UTC
+  schedule:
+    - cron: '0 0 * * *'
 
 jobs:
   scrape:
