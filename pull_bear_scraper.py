@@ -336,7 +336,7 @@ class PullBearScraper:
             
             # Build product URL first (needed for unique ID generation)
             product_url_base = variant.get('productUrl', '')
-            product_url = f"https://www.pullandbear.com/en/{product_url_base}.html"
+            product_url = f"https://www.pullandbear.com/mt/{product_url_base}"
             
             # Create unique product ID using hash of product URL + color ID to ensure uniqueness
             # This prevents duplicates while keeping IDs reasonably short
