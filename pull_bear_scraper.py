@@ -47,13 +47,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# User agents for rotation
+# User agents for rotation - more diverse and recent
 USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1.1 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.14; rv:133.0) Gecko/20100101 Firefox/133.0',
 ]
 
 def get_random_user_agent() -> str:
@@ -73,7 +76,11 @@ def get_realistic_headers(referer: str = None) -> Dict[str, str]:
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
         'Cache-Control': 'max-age=0',
+        'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
     }
 
     if referer:
@@ -219,11 +226,30 @@ class PullBearScraper:
 
     async def __aenter__(self):
         """Async context manager entry."""
+        # Create a cookie jar to persist session cookies
+        cookie_jar = aiohttp.CookieJar()
+
         self.session = aiohttp.ClientSession(
             headers=get_realistic_headers('https://www.pullandbear.com/'),
-            connector=aiohttp.TCPConnector(limit=10, ttl_dns_cache=300),
-            timeout=aiohttp.ClientTimeout(total=30, connect=10)
+            connector=aiohttp.TCPConnector(limit=5, ttl_dns_cache=300),  # Reduced concurrent connections
+            timeout=aiohttp.ClientTimeout(total=45, connect=15),  # Increased timeouts
+            cookie_jar=cookie_jar
         )
+
+        # Initialize session by visiting the main site first
+        try:
+            logger.info("Initializing session with main site visit...")
+            warmup_headers = get_realistic_headers()
+            async with self.session.get('https://www.pullandbear.com/', headers=warmup_headers) as response:
+                if response.status == 200:
+                    logger.info("Session initialized successfully")
+                    # Wait a bit to simulate user behavior
+                    await asyncio.sleep(2 + random.uniform(0, 2))
+                else:
+                    logger.warning(f"Session initialization failed with status {response.status}")
+        except Exception as e:
+            logger.warning(f"Session initialization error: {e}")
+
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -258,6 +284,12 @@ class PullBearScraper:
 
         for attempt in range(max_retries):
             try:
+                # Add longer delay between requests to appear more human-like
+                base_delay = 3 + random.uniform(1, 3)  # 3-6 seconds base delay
+                if attempt > 0:
+                    base_delay += (2 ** attempt) * 2  # Exponential backoff for retries
+                await asyncio.sleep(base_delay)
+
                 # Update headers with fresh user agent for each attempt
                 headers = get_realistic_headers('https://www.pullandbear.com/')
                 headers.update({'Accept': 'application/json'})
@@ -271,7 +303,7 @@ class PullBearScraper:
                     elif response.status == 403:
                         logger.warning(f"403 Forbidden on attempt {attempt + 1}/{max_retries} for {url}")
                         if attempt < max_retries - 1:
-                            delay = (2 ** attempt) + random.uniform(0, 1)  # Exponential backoff with jitter
+                            delay = (2 ** attempt) + random.uniform(2, 5)  # Longer delays for 403s
                             logger.info(f"Waiting {delay:.2f} seconds before retry...")
                             await asyncio.sleep(delay)
                             continue
@@ -284,7 +316,7 @@ class PullBearScraper:
             except Exception as e:
                 logger.error(f"Error fetching products (attempt {attempt + 1}/{max_retries}): {e} - {url}")
                 if attempt < max_retries - 1:
-                    delay = (2 ** attempt) + random.uniform(0, 1)
+                    delay = (2 ** attempt) + random.uniform(2, 5)
                     await asyncio.sleep(delay)
                 else:
                     return {"products": []}
@@ -807,29 +839,52 @@ class PullBearScraper:
         all_products = []
         seen_product_urls = set()  # Track unique product URLs to avoid duplicates
 
+        # Known working categories - prioritize these first (based on successful runs)
+        WORKING_CATEGORIES = ['category_1030204661', 'category_1030299058']
+
         # Scrape men's categories - get ALL products from each category
-        for category_name, category_data in CATEGORY_IDS['men'].items():
+        # Sort to prioritize known working categories
+        sorted_categories = sorted(CATEGORY_IDS['men'].items(),
+                                 key=lambda x: (x[0] not in WORKING_CATEGORIES, x[0]))
+
+        for category_name, category_data in sorted_categories:
             category_id = category_data['category_id']
             stats['categories_processed'] += 1
 
+            # Special handling for known working categories
+            is_working_category = category_name in WORKING_CATEGORIES
             try:
-                logger.info(f"Processing category: {category_name} ({category_id})")
+                if is_working_category:
+                    logger.info(f"🎯 Processing KNOWN WORKING category: {category_name} ({category_id})")
+                else:
+                    logger.info(f"Processing category: {category_name} ({category_id})")
 
-                # Load product IDs for this category - use Playwright as primary method for URLs
-                product_ids = await load_product_ids_from_url_async(category_id, self.category_urls)
+                # For working categories, prioritize URL method (more reliable)
+                if is_working_category:
+                    product_ids = await load_product_ids_from_url_async(category_id, self.category_urls)
+                    if not product_ids:
+                        # Fallback to API for working categories
+                        logger.info(f"  URL method failed for working category {category_name}, trying API...")
+                        product_ids = await self._discover_product_ids_from_api_async(category_id)
+                else:
+                    # For other categories, try all methods
+                    product_ids = await load_product_ids_from_url_async(category_id, self.category_urls)
 
-                # Fallback: Try direct API if Playwright URL loading failed
+                    # Fallback: Try direct API if URL loading failed
+                    if not product_ids:
+                        logger.info(f"  URL loading failed for {category_name}, trying direct API...")
+                        product_ids = await self._discover_product_ids_from_api_async(category_id)
+
+                    # Final fallback: Try Playwright API discovery
+                    if not product_ids:
+                        logger.info(f"  Direct API blocked for {category_name}, trying Playwright API discovery...")
+                        product_ids = await self._discover_product_ids_with_playwright_async(category_id)
+
                 if not product_ids:
-                    logger.info(f"  URL loading failed for {category_name}, trying direct API...")
-                    product_ids = await self._discover_product_ids_from_api_async(category_id)
-
-                # Final fallback: Try Playwright API discovery
-                if not product_ids:
-                    logger.info(f"  Direct API blocked for {category_name}, trying Playwright API discovery...")
-                    product_ids = await self._discover_product_ids_with_playwright_async(category_id)
-
-                if not product_ids:
-                    logger.warning(f"No product IDs found for category {category_name} ({category_id}) using any method, skipping")
+                    if is_working_category:
+                        logger.error(f"❌ WORKING category {category_name} ({category_id}) failed - this should be investigated")
+                    else:
+                        logger.warning(f"No product IDs found for category {category_name} ({category_id}) using any method, skipping")
                     stats['categories_failed'] += 1
                     continue
 
@@ -997,14 +1052,27 @@ class PullBearScraper:
                         '--no-first-run',
                         '--no-zygote',
                         '--single-process',
-                        '--disable-gpu'
+                        '--disable-gpu',
+                        '--disable-blink-features=AutomationControlled',  # Hide automation
+                        '--disable-web-security',
+                        '--disable-features=VizDisplayCompositor',
+                        '--user-agent=' + get_random_user_agent()
                     ]
                 )
                 context = await browser.new_context(
                     user_agent=get_random_user_agent(),
-                    viewport={'width': 1280, 'height': 720},
+                    viewport={'width': 1920, 'height': 1080},  # More common resolution
                     locale='en-GB',
-                    timezone_id='Europe/London'
+                    timezone_id='Europe/London',
+                    geolocation=None,
+                    permissions=['geolocation'],
+                    extra_http_headers={
+                        'Accept-Language': 'en-GB,en;q=0.9,en-US;q=0.8,en;q=0.7',
+                        'DNT': '1',
+                        'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                        'sec-ch-ua-mobile': '?0',
+                        'sec-ch-ua-platform': '"Windows"'
+                    }
                 )
                 page = await context.new_page()
 
