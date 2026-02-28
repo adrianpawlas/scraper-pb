@@ -1,31 +1,67 @@
 import os
-from typing import Optional
+from typing import Any, Optional
 from time import sleep
 from io import BytesIO
 import requests
 import torch
 from PIL import Image
-from transformers import SiglipProcessor, SiglipModel
+from transformers import SiglipProcessor, SiglipModel, AutoTokenizer
 
 _processor: Optional[SiglipProcessor] = None
 _model: Optional[SiglipModel] = None
+_tokenizer: Optional[Any] = None
 _model_error: bool = False
 
 
 def _get_model():
-    global _processor, _model, _model_error
+    global _processor, _model, _tokenizer, _model_error
     if _model is None and not _model_error:
         model_name = os.getenv("EMBEDDINGS_MODEL", "google/siglip-base-patch16-384")
         try:
             print(f"[MODEL] Loading {model_name}...")
             _processor = SiglipProcessor.from_pretrained(model_name)
             _model = SiglipModel.from_pretrained(model_name)
+            _tokenizer = AutoTokenizer.from_pretrained(model_name)
             print(f"[MODEL] Loaded {model_name} successfully")
         except Exception as e:
             print(f"[ERROR] Failed to load model {model_name}: {e}")
             _model_error = True
-            return None, None
-    return _processor, _model
+            return None, None, None
+    return _processor, _model, _tokenizer
+
+
+def get_text_embedding(text: str, max_length: int = 77) -> Optional[list]:
+    """Get 768-dim text embedding using SigLIP text encoder (same model as image embedding).
+    Use for info_embedding: concatenate title, price, description, category, gender, metadata.
+    """
+    if not text or not str(text).strip():
+        return None
+    processor, model, tokenizer = _get_model()
+    if model is None or tokenizer is None:
+        return None
+    try:
+        # SigLIP expects padding="max_length" as trained
+        inputs = tokenizer(
+            [str(text).strip()[:2000]],
+            padding="max_length",
+            max_length=max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            text_features = model.get_text_features(**inputs)
+        # get_text_features returns BaseModelOutputWithPooling; use pooler_output (768-dim)
+        emb = text_features.pooler_output if hasattr(text_features, "pooler_output") else text_features[0]
+        embedding = emb.squeeze().tolist()
+        if isinstance(embedding, float):
+            embedding = [embedding]
+        if len(embedding) != 768:
+            print(f"[ERROR] Text embedding dimension: got {len(embedding)}, expected 768")
+            return None
+        return embedding
+    except Exception as e:
+        print(f"[ERROR] Text embedding failed: {str(e)[:80]}")
+        return None
 
 
 def get_image_embedding(image_url: str, max_retries: int = 3) -> Optional[list]:
@@ -34,7 +70,7 @@ def get_image_embedding(image_url: str, max_retries: int = 3) -> Optional[list]:
     if not image_url or not str(image_url).strip():
         return None
 
-    processor, model = _get_model()
+    processor, model, _ = _get_model()
     if model is None or processor is None:
         return None
 

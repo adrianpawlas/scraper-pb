@@ -11,7 +11,7 @@ try:
     from .db import SupabaseREST
     from .api_ingestor import ingest_api
     from .transform import to_supabase_row
-    from .embeddings import get_image_embedding
+    from .embeddings import get_image_embedding, get_text_embedding
 except ImportError:
     # Fallback for direct execution
     from config import load_env, get_supabase_env
@@ -19,7 +19,7 @@ except ImportError:
     from db import SupabaseREST
     from api_ingestor import ingest_api
     from transform import to_supabase_row
-    from embeddings import get_image_embedding
+    from embeddings import get_image_embedding, get_text_embedding
 
 
 def load_category_urls(filename: str = "category_urls.txt") -> Dict[str, str]:
@@ -384,7 +384,21 @@ def run_for_site(site: Dict, session: PoliteSession, db: SupabaseREST, supa_env:
 
                         emb = get_image_embedding(image_url)
                         if emb is not None:
-                            row["embedding"] = emb
+                            row["image_embedding"] = emb
+                            # info_embedding: text embedding of title, price, description, category, gender, metadata
+                            info_parts = [
+                                str(row.get("title") or ""),
+                                str(row.get("price") or ""),
+                                str(row.get("description") or ""),
+                                str(row.get("category") or ""),
+                                str(row.get("gender") or ""),
+                            ]
+                            if row.get("metadata"):
+                                info_parts.append(str(row["metadata"])[:500])
+                            info_text = " ".join(p for p in info_parts if p.strip())
+                            info_emb = get_text_embedding(info_text) if info_text else None
+                            if info_emb is not None:
+                                row["info_embedding"] = info_emb
                             collected.append(row)
                         
                         if limit and len(collected) >= limit:

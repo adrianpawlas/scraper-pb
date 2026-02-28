@@ -1,7 +1,31 @@
-from typing import Any, Dict, List
+import json
 import re
+from typing import Any, Dict, List, Optional
 
 # No external imports needed for this module
+
+
+def _format_price(price_val: Any, currency: Any) -> Optional[str]:
+    """Format price as text e.g. '29.99EUR' or '20.90USD,450CZK'. Accepts already-formatted string or value+currency."""
+    if price_val is None:
+        return None
+    if isinstance(price_val, str) and price_val.strip():
+        # Already multi-currency or "29.99EUR" style
+        s = price_val.strip()
+        if re.match(r"^[\d.,]+\s*[A-Z]{3}", s) or "," in s:
+            return s
+        # Might be just number
+        cur = str(currency).strip().upper() if currency else "EUR"
+        return f"{s}{cur}" if cur else s
+    cur = str(currency).strip().upper() if currency else "EUR"
+    try:
+        if isinstance(price_val, (int, float)):
+            if isinstance(price_val, int) and price_val >= 1000:
+                price_val = price_val / 100.0
+            return f"{float(price_val):.2f}{cur}"
+    except Exception:
+        pass
+    return str(price_val) + (cur if cur else "")
 
 
 def _normalize_availability(raw_availability: Any) -> str:
@@ -61,10 +85,9 @@ def to_supabase_row(raw: Dict[str, Any]) -> Dict[str, Any]:
     row["title"] = raw.get("title") or "Unknown title"
     row["description"] = raw.get("description")
     row["brand"] = raw.get("brand") or "Bershka"
-    row["price"] = raw.get("price")
-    row["currency"] = raw.get("currency") or "EUR"
-    
-    # Fix image URLs for Bershka
+    # Price: text format e.g. "20.90USD,450CZK" (multi-currency) or "29.99EUR"
+    row["price"] = _format_price(raw.get("price"), raw.get("currency"))
+    row["sale"] = _format_price(raw.get("sale"), raw.get("sale_currency")) or raw.get("sale")  # same format as price when on sale
     image_url = raw.get("image_url")
     if image_url:
         # Handle relative URLs
@@ -84,32 +107,42 @@ def to_supabase_row(raw: Dict[str, Any]) -> Dict[str, Any]:
         product_url = f"https://www.bershka.com/us/{slug}-c0p{external_id}.html"
     row["product_url"] = product_url
     row["affiliate_url"] = raw.get("affiliate_url")
+    row["country"] = raw.get("country")
+
+    # Additional images: comma+space separated "url1 , url2"
+    add_imgs = raw.get("additional_images")
+    if isinstance(add_imgs, list):
+        row["additional_images"] = " , ".join(str(u).strip() for u in add_imgs if u)
+    elif isinstance(add_imgs, str) and add_imgs.strip():
+        row["additional_images"] = add_imgs.strip()
+    else:
+        row["additional_images"] = None
 
     # Set second_hand to FALSE for all current brands (they are not second-hand marketplaces)
     row["second_hand"] = False
 
-    # Use gender from category config (set in cli.py)
-    # This ensures women's products get "WOMAN" and men's products get "MAN"
+    # Gender: lowercase "man" / "woman" (per products table convention)
     raw_gender = raw.get("gender")
     if raw_gender:
         gender_str = str(raw_gender).strip().upper()
-        # If already correctly set to MAN or WOMAN, use it
-        if gender_str == "MAN" or gender_str == "WOMAN":
-            row["gender"] = gender_str
-        # Otherwise normalize
-        elif any(word in gender_str for word in ["MEN", "MAN", "MALE", "GUY", "BOY"]):
-            row["gender"] = "MAN"
-        elif any(word in gender_str for word in ["WOMEN", "WOMAN", "FEMALE", "LADY", "GIRL"]):
-            row["gender"] = "WOMAN"
+        if gender_str in ("MAN", "MEN", "MALE", "GUY", "BOY") or any(w in gender_str for w in ["MEN", "MAN", "MALE"]):
+            row["gender"] = "man"
+        elif gender_str in ("WOMAN", "WOMEN", "FEMALE", "LADY", "GIRL") or any(w in gender_str for w in ["WOMEN", "WOMAN", "FEMALE"]):
+            row["gender"] = "woman"
         else:
-            row["gender"] = gender_str  # Keep original if doesn't match
+            row["gender"] = gender_str.lower() if gender_str else None
     else:
-        # No gender provided - leave as None
         row["gender"] = None
 
-    # Category is set by cli.py based on the category config
-    # If not set, default to None (clothing)
-    row["category"] = raw.get("category")
+    # Category: comma-separated e.g. "Sweaters" or "Sweaters, Hoodies"
+    cat = raw.get("category")
+    if isinstance(cat, list):
+        row["category"] = ", ".join(str(c).strip() for c in cat if c) or None
+    elif isinstance(cat, str) and cat.strip():
+        # "Sweaters & Hoodies" -> "Sweaters, Hoodies"
+        row["category"] = re.sub(r"\s*&\s*", ", ", cat.strip())
+    else:
+        row["category"] = None
 
     # Normalize sizes: accept str, list[str], or nested lists → text (comma-separated)
     size_val = raw.get("size") or raw.get("sizes")
@@ -129,37 +162,7 @@ def to_supabase_row(raw: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Normalize price from minor units (cents) to decimal if needed
-    try:
-        price_val = row.get("price")
-        if price_val is not None:
-            # Handle common price formats: integers in minor units, "49.90", "CZK849", "$49.90"
-            if isinstance(price_val, (int, float)):
-                # If it's a large integer, assume minor units (e.g., 4990 -> 49.90)
-                if isinstance(price_val, int) and price_val >= 1000:
-                    row["price"] = price_val / 100.0
-                else:
-                    row["price"] = float(price_val)
-            elif isinstance(price_val, str):
-                s = price_val.strip()
-                # Remove currency symbols and letters
-                s_clean = re.sub(r"[^0-9.,]", "", s)
-                # Replace comma as decimal if needed
-                if s_clean.count(",") == 1 and s_clean.count(".") == 0:
-                    s_clean = s_clean.replace(",", ".")
-                # Remove thousand separators
-                if s_clean.count(".") > 1:
-                    parts = s_clean.split(".")
-                    s_clean = "".join(parts[:-1]) + "." + parts[-1]
-                if s_clean:
-                    num = float(s_clean)
-                    # If looks like minor units (>= 1000 and no decimal), scale down
-                    if num >= 1000 and abs(num - int(num)) < 1e-9:
-                        row["price"] = num / 100.0
-                    else:
-                        row["price"] = num
-    except Exception:
-        pass
+    # Price/sale already set as text by _format_price; no numeric normalization (table expects text)
 
     # Build metadata json: include base info, plus site/source-specific _meta and useful raw fields
     try:
@@ -180,7 +183,9 @@ def to_supabase_row(raw: Dict[str, Any]) -> Dict[str, Any]:
             meta["original_price"] = raw.get("price")
         if raw.get("currency") is not None and "original_currency" not in meta:
             meta["original_currency"] = raw.get("currency")
-        row["metadata"] = meta
+        if raw.get("sale") is not None and "sale" not in meta:
+            meta["sale"] = raw.get("sale")
+        row["metadata"] = json.dumps(meta) if meta else None
     except Exception:
         pass
 

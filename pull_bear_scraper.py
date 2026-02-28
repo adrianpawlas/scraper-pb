@@ -31,6 +31,10 @@ from config import (
     EMBEDDING_MODEL, CATEGORY_IDS, GENDER_MAPPING, CATEGORY_CLASSIFICATION,
     PRODUCT_LIMIT
 )
+try:
+    from embeddings import get_text_embedding
+except ImportError:
+    get_text_embedding = None
 
 # Import additional functions for loading product IDs
 import requests
@@ -382,23 +386,35 @@ class PullBearScraper:
             # Extract category information
             category = self._extract_category(bundle_product)
 
-            # Extract gender
-            gender = GENDER_MAPPING.get(variant.get('sectionNameEN', ''), 'unisex')
+            # Extract gender (store as "man" / "woman" per products table)
+            raw_gender = GENDER_MAPPING.get(variant.get('sectionNameEN', ''), 'unisex')
+            gender = 'man' if raw_gender == 'men' else ('woman' if raw_gender == 'women' else raw_gender)
 
-            # Extract pricing (use the first available size's price)
-            price = None
-            currency = 'EUR'  # Pull & Bear uses EUR
+            # Extract pricing: price = original (no sale), sale = sale price when on sale (same format)
+            price_str_text = None
+            sale_str_text = None
             if color.get('sizes') and len(color['sizes']) > 0:
                 first_size = color['sizes'][0]
-                price_str = first_size.get('price', '')
-                if price_str:
+                current_price_raw = first_size.get('price', '')
+                original_price_raw = first_size.get('oldPrice') or first_size.get('originalPrice') or current_price_raw
+                if original_price_raw:
                     try:
-                        # Convert cents to decimal (e.g., 9990 -> 99.90)
-                        price_cents = int(price_str)
-                        price = float(price_cents) / 100
+                        orig_cents = int(original_price_raw)
+                        price_str_text = f"{orig_cents / 100.0:.2f}EUR"
                     except (ValueError, TypeError):
-                        logger.warning(f"Could not parse price: {price_str}")
-                        price = None
+                        pass
+                if current_price_raw:
+                    try:
+                        curr_cents = int(current_price_raw)
+                        sale_str_text = f"{curr_cents / 100.0:.2f}EUR"
+                    except (ValueError, TypeError):
+                        pass
+                if sale_str_text is None and price_str_text:
+                    sale_str_text = price_str_text  # same as price when no sale
+
+            # Additional images (all media URLs except main, comma+space separated)
+            additional_urls = self._get_additional_image_urls(variant, image_url)
+            additional_images = " , ".join(additional_urls) if additional_urls else None
 
             # Extract size information
             sizes = [size['name'] for size in color.get('sizes', []) if size.get('isBuyable')]
@@ -427,6 +443,10 @@ class PullBearScraper:
                 'attributes': bundle_product.get('attributes', []),
             }
 
+            # Category: human-readable e.g. "Sweaters" or "Sweaters, Hoodies" (comma-separated)
+            category_raw = self._extract_category(bundle_product)
+            category = category_raw.replace(" & ", ", ") if category_raw else None
+
             return {
                 'id': product_id,
                 'source': 'scraper',
@@ -436,20 +456,47 @@ class PullBearScraper:
                 'brand': 'Pull & Bear',
                 'title': title,
                 'description': description,
-                'category': self._classify_category(bundle_product),
+                'category': category,
                 'gender': gender,
-                'price': price,
-                'currency': currency,
+                'price': price_str_text,
+                'sale': sale_str_text,
                 'metadata': json.dumps(metadata),
                 'size': ', '.join(sizes) if sizes else None,
                 'second_hand': False,
                 'created_at': None,  # Will be set by database default
-                'embedding': None,  # Will be added later
+                'additional_images': additional_images,
+                'image_embedding': None,  # Filled in process_products_batch
+                'info_embedding': None,
             }
 
         except Exception as e:
             logger.error(f"Error extracting product info: {e}")
             return None
+
+    def _get_additional_image_urls(self, variant: Dict, main_image_url: Optional[str]) -> List[str]:
+        """Collect all image URLs from variant xmedia except main_image_url. For additional_images column."""
+        urls = []
+        try:
+            variant_detail = variant.get('detail', {})
+            xmedia = variant_detail.get('xmedia', [])
+            main = (main_image_url or "").strip()
+            for xmedia_item in xmedia:
+                for item in xmedia_item.get('xmediaItems', []):
+                    for media in item.get('medias', []):
+                        url = media.get('extraInfo', {}).get('deliveryUrl') or media.get('url')
+                        if not url:
+                            continue
+                        if url.startswith('//'):
+                            url = 'https:' + url
+                        elif url.startswith('/') and 'pullandbear' in url:
+                            url = 'https://static.pullandbear.net' + url
+                        elif url.startswith('assets/'):
+                            url = 'https://static.pullandbear.net/' + url
+                        if url and url != main and url not in urls:
+                            urls.append(url)
+        except Exception as e:
+            logger.debug(f"Error getting additional image URLs: {e}")
+        return urls
 
     def _get_best_image_url(self, variant: Dict) -> Optional[str]:
         """Get image URL from variant data - only returns 'z1' or 'c1' images."""
@@ -734,17 +781,34 @@ class PullBearScraper:
             if product['image_url']:
                 embedding = await self.generate_embedding(product['image_url'])
                 if embedding:
-                    product['embedding'] = embedding
+                    product['image_embedding'] = embedding
+                    # info_embedding: text embedding of title, price, description, category, gender, metadata
+                    if get_text_embedding:
+                        info_parts = [
+                            str(product.get('title') or ''),
+                            str(product.get('price') or ''),
+                            str(product.get('description') or ''),
+                            str(product.get('category') or ''),
+                            str(product.get('gender') or ''),
+                        ]
+                        if product.get('metadata'):
+                            info_parts.append(str(product['metadata'])[:500])
+                        info_text = ' '.join(p for p in info_parts if p.strip())
+                        info_emb = get_text_embedding(info_text) if info_text else None
+                        if info_emb is not None:
+                            product['info_embedding'] = info_emb
                     processed_products.append(product)
 
         return processed_products
 
     async def save_to_supabase(self, products: List[Dict[str, Any]]) -> int:
         """Save products to Supabase database with improved error handling."""
-        # Convert embeddings to proper format for Supabase vector
+        # Convert vector embeddings to Supabase format (postgres vector string)
         for product in products:
-            if product.get('embedding'):
-                product['embedding'] = f"[{', '.join(map(str, product['embedding']))}]"
+            if product.get('image_embedding'):
+                product['image_embedding'] = f"[{', '.join(map(str, product['image_embedding']))}]"
+            if product.get('info_embedding'):
+                product['info_embedding'] = f"[{', '.join(map(str, product['info_embedding']))}]"
 
         # Insert in batches with per-batch error handling
         batch_size = 100
